@@ -1,0 +1,13 @@
+name: multilex-app
+title: multilex-app
+username:
+account: gongcastro
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 5831309
+bundleId: 5806611
+url: https://gongcastro.shinyapps.io/multilex-app/
+when: 1650192392.83434
+lastSyncTime: 1650192392.83434
+asMultiple: FALSE
+asStatic: FALSE

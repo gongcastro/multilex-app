@@ -5,14 +5,15 @@ server <- function(input, output) {
     thematic_shiny()
     
     # main multilex data
+    tic("get_multilex (server)")
     ml_data <- reactive({ get_multilex() })
+    toc()
     
     # reactive logs (trigger upon button click)
     logs <- eventReactive(
         input$responses_filter_button, ignoreNULL = FALSE, {
             ml_data()$logs %>% 
-                get_longitudinal(input$responses_is_longitudinal) %>% 
-                # get only complete responses from participants in the selected 
+                collect() %>% 
                 # age range, language profile, and date range
                 filter(
                     completed,
@@ -20,35 +21,15 @@ server <- function(input, output) {
                     lp %in% input$responses_lp,
                     between(time_stamp, input$responses_time_stamp[1], input$responses_time_stamp[2]),
                     between(date_birth, input$responses_date_birth[1], input$responses_date_birth[2])
-                )  
-        })
-    
-    vocabulary <- eventReactive(
-        input$vocabulary_filter_button, ignoreNULL = FALSE, {
-            
-            logs <- ml_data()$logs %>% 
-                get_longitudinal(input$vocabulary_is_longitudinal) %>% 
+                ) %>% 
                 # get only complete responses from participants in the selected 
-                # age range, language profile, and date range
-                filter(
-                    completed,
-                    between(age, input$vocabulary_age_range[1], input$vocabulary_age_range[2]),
-                    lp %in% input$vocabulary_lp,
-                    between(time_stamp, input$vocabulary_time_stamp[1], input$vocabulary_time_stamp[2]),
-                    between(date_birth, input$vocabulary_date_birth[1], input$vocabulary_date_birth[2])
-                )  
-            
-            left_join(logs, ml_data()$vocabulary) %>% 
-                filter(type %in% input$vocabulary_type)
-            
+                get_longitudinal(input$responses_is_longitudinal) 
         })
     
     # participant searcher
     participants <- eventReactive(
         input$participants_filter_button, ignoreNULL = FALSE, {
-            ml_data()$logs %>% 
-                get_longitudinal(input$participants_is_longitudinal) %>% 
-                # get only complete responses from participants in the selected 
+            logs() %>% 
                 # age range, language profile, and date range
                 filter(
                     completed,
@@ -57,20 +38,26 @@ server <- function(input, output) {
                     lp %in% input$participants_lp,
                     between(time_stamp, input$participants_time_stamp[1], input$participants_time_stamp[2]),
                     between(date_birth, input$participants_date_birth[1], input$participants_date_birth[2])
-                )  
+                )  %>% 
+                # get only complete responses from participants in the selected 
+                get_longitudinal(input$participants_is_longitudinal) 
         })
     
     
     # table with N by age, LP, and dominance
     output$participants_id_table <- renderTable({
-        participants() %>%
+        logs() %>%
             select(
                 id, id_db, code, time, version, time_stamp, date_birth, age,
                 lp, doe_catalan, doe_spanish, doe_others
             ) %>% 
             arrange(desc(time_stamp)) %>% 
             mutate_at(vars(starts_with("doe")), percent) %>% 
-            mutate(age = round(age, 2)) %>% 
+            mutate_at(vars(time_stamp, date_birth), ~as.character(as.Date(.))) %>% 
+            mutate(
+                age = round(age, 2),
+                time = round(time, 0)
+            ) %>% 
             head(20)
     }, width = "100%", na = "-")
     
@@ -102,6 +89,7 @@ server <- function(input, output) {
                 colour = "Dominance", 
                 fill = "Dominance"
             ) +
+            theme_custom() +
             theme(
                 axis.text.y = element_blank(),
                 axis.ticks.y = element_blank(),
@@ -125,7 +113,7 @@ server <- function(input, output) {
     output$responses_n_age_plot <- renderPlot({
         logs() %>% 
             mutate(age_group = round(age, 0)) %>% 
-            count(age_group, lp, dominance) %>% 
+            count(age_group, lp, dominance) %>%
             ggplot() + 
             aes(age_group, n, fill = dominance) +
             facet_wrap(vars(lp)) + 
@@ -136,11 +124,33 @@ server <- function(input, output) {
                 colour = "Dominance", 
                 fill = "Dominance"
             ) +
+            theme_custom() +
             theme(
                 legend.position = "top"
             )
         
     }, res = 96)
+    
+    # vocabulary ----
+    vocabulary <- eventReactive(
+        input$vocabulary_filter_button, ignoreNULL = FALSE, {
+            
+            ml_data()$logs %>% 
+                collect() %>% 
+                filter(
+                    # get only complete responses from participants in the selected 
+                    completed,
+                    # age range, language profile, and date range
+                    between(age, input$vocabulary_age_range[1], input$vocabulary_age_range[2]),
+                    lp %in% input$vocabulary_lp,
+                    between(time_stamp, input$vocabulary_time_stamp[1], input$vocabulary_time_stamp[2]),
+                    between(date_birth, input$vocabulary_date_birth[1], input$vocabulary_date_birth[2])
+                )  %>% 
+                get_longitudinal(input$vocabulary_is_longitudinal) %>% 
+                left_join(collect(ml_data()$vocabulary)) %>% 
+                filter(type %in% input$vocabulary_type)
+            
+        })
     
     # plot vocabulary size by age
     output$vocabulary_total_plot <- renderPlot({
@@ -155,12 +165,12 @@ server <- function(input, output) {
                 fill = "Language profile"
             ) +
             scale_y_continuous(limits = c(0, 1), labels = percent) + 
+            theme_custom() +
             theme(
                 legend.position = "top",
                 legend.title = element_blank()
             )
-        
-    }, res = 96)
+    })
     
     output$vocabulary_total_data <- renderTable({
         nearPoints(
@@ -174,6 +184,7 @@ server <- function(input, output) {
     
     
     output$vocabulary_dominance_plot <- renderPlot({
+        
         vocabulary() %>% 
             pivot_longer(
                 c(vocab_prop_dominance_l1, vocab_prop_dominance_l2),
@@ -190,6 +201,7 @@ server <- function(input, output) {
                 fill = "Language profile"
             ) +
             scale_y_continuous(limits = c(0, 1), labels = percent) + 
+            theme_custom() +
             theme(
                 legend.position = "top",
                 legend.title = element_blank()
@@ -198,6 +210,7 @@ server <- function(input, output) {
     }, res = 96)
     
     output$vocabulary_dominance_data <- renderTable({
+        
         nearPoints(
             vocabulary() %>% 
                 pivot_longer(
@@ -213,6 +226,7 @@ server <- function(input, output) {
     
     # plot vocabulary size by age
     output$vocabulary_conceptual_plot <- renderPlot({
+        
         vocabulary() %>% 
             ggplot() + 
             aes(age, vocab_prop_conceptual, colour = lp) +
@@ -224,6 +238,7 @@ server <- function(input, output) {
                 fill = "Language profile"
             ) +
             scale_y_continuous(limits = c(0, 1), labels = percent) + 
+            theme_custom() +
             theme(
                 legend.position = "top",
                 legend.title = element_blank()
@@ -232,6 +247,7 @@ server <- function(input, output) {
     }, res = 96)
     
     output$vocabulary_conceptual_data <- renderTable({
+        
         nearPoints(
             vocabulary()  %>% 
                 select(id, age, vocab_prop_conceptual), 
@@ -242,6 +258,7 @@ server <- function(input, output) {
     })
     
     output$vocabulary_te_plot <- renderPlot({
+        
         vocabulary() %>% 
             ggplot() + 
             aes(age, vocab_prop_conceptual, colour = lp) +
@@ -253,6 +270,7 @@ server <- function(input, output) {
                 fill = "Language profile"
             ) +
             scale_y_continuous(limits = c(0, 1), labels = percent) + 
+            theme_custom() +
             theme(
                 legend.position = "top",
                 legend.title = element_blank()
@@ -261,6 +279,7 @@ server <- function(input, output) {
     }, res = 96)
     
     output$vocabulary_te_data <- renderTable({
+        
         nearPoints(
             vocabulary() %>% 
                 select(id, age, vocab_prop_te),
@@ -272,33 +291,51 @@ server <- function(input, output) {
     
     
     # norms (word prevalence) ----
-    norms <- eventReactive(
-        input$norms_filter_button, ignoreNULL = FALSE, {
-            ml_data()$norms %>% 
-                filter(
-                    label %in% input$norms_label,
-                    between(age_bin, input$norms_age_range[1], input$norms_age_range[2]),
-                    lp %in% input$norms_lp,
-                    type %in% input$norms_type,
-                    item_dominance %in% input$norms_item_dominance
-                )  %>% 
-                group_by(te, label) %>% 
-                summarise(
-                    yes = sum(yes, na.rm = TRUE),
-                    n = sum(n, na.rm = TRUE),
-                    .groups = "drop"
-                )
-        })
+    # norms <- eventReactive(
+    #     input$norms_filter_button, ignoreNULL = FALSE, {
+    #         ml_data()$norms %>% 
+    #             filter(
+    #                 label %in% input$norms_label,
+    #                 between(age_bin, input$norms_age_range[1], input$norms_age_range[2]),
+    #                 lp %in% input$norms_lp,
+    #                 type %in% input$norms_type,
+    #                 item_dominance %in% input$norms_item_dominance
+    #             )  %>% 
+    #             group_by(te, label) %>% 
+    #             summarise(
+    #                 yes = sum(yes, na.rm = TRUE),
+    #                 n = sum(n, na.rm = TRUE),
+    #                 .groups = "drop"
+    #             )
+    #     })
     
     
-    output$norms_plot <- renderPlot({
-            plot_bayes_grid(
-                yes = norms()$yes,
-                n = norms()$n, 
-                prior_alpha = input$norms_prior_alpha, 
-                prior_beta = input$norms_prior_beta
+    # output$norms_plot <- renderPlot({
+    #     plot_bayes_grid(
+    #         yes = norms()$yes,
+    #         n = norms()$n, 
+    #         prior_alpha = input$norms_prior_alpha, 
+    #         prior_beta = input$norms_prior_beta
+    #     )
+    # })
+    # 
+    output$norms_plot_model <- renderPlot({
+        
+        predictions <- ml_data()$predictions %>% 
+            filter(label==input$norms_label) %>% 
+            collect()
+        
+        aoas <- ml_data()$aoas %>% 
+            filter(label==input$norms_label) %>% 
+            collect()
+        
+        plot_predictions(
+            .predictions = predictions,
+            .aoas = aoas,
+            show_uncertainty = input$norms_show_uncertainty
             )
-    })
+        
+    }, width = 800, height = 600, res = 96)
     
     
     
