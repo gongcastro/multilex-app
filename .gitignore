@@ -4,6 +4,9 @@
 
 # Session Data files
 .RData
+.rds
+*.parquet
+*.feather
 
 # User-specific files
 .Ruserdata
